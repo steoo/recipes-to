@@ -25,7 +25,7 @@ function Curtain() {
     rotationZ: { value: Math.PI / 2, min: -Math.PI, max: Math.PI, step: 0.1 },
     scale: { value: 0.005, min: 0.001, max: 0.1, step: 0.001 },
     color: {
-      value: '#ebd8a9',
+      value: '#dec37d',
     },
     metalness: { value: 0.0, min: 0, max: 1, step: 0.1 },
     roughness: { value: 0.5, min: 0, max: 1, step: 0.1 },
@@ -109,21 +109,19 @@ function Curtain() {
             const origY = originalPositions[i * 3 + 1];
             const origZ = originalPositions[i * 3 + 2];
 
-            // Use pre-computed normalized Y values
-            const foldPhase =
-              normalizedY[i] * Math.PI * 2 * controls.foldLayers;
+            // Shift the phase of the sine wave based on progress
+            const shiftedPhase =
+              normalizedY[i] * Math.PI * 2 * controls.foldLayers +
+              Math.PI * easedProgress;
             const foldOffset =
-              Math.sin(foldPhase) * controls.foldAmount * easedProgress;
+              Math.sin(shiftedPhase) * controls.foldAmount * easedProgress;
 
             positions.setZ(i, origZ + foldOffset);
-
-            // Smooth out the height compression
             const compressedY = origY * (1 - easedProgress * 0.5);
             positions.setY(i, compressedY);
           }
 
           positions.needsUpdate = true;
-          // Only compute normals every few frames if needed
           if (state.clock.elapsedTime % 2 === 0) {
             child.geometry.computeVertexNormals();
           }
