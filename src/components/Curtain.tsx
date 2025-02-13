@@ -1,4 +1,4 @@
-import { useGLTF } from '@react-three/drei';
+import { useGLTF, useHelper } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useControls } from 'leva';
 import { useRef, useState, useEffect, useMemo } from 'react';
@@ -19,7 +19,7 @@ export function Curtain() {
 
   const controls = useControls('Curtain', {
     positionX: { value: 0, min: -100, max: 100, step: 5 },
-    positionY: { value: 0, min: -100, max: 100, step: 5 },
+    positionY: { value: -4, min: -100, max: 100, step: 1 },
     positionZ: { value: 0, min: -100, max: 100, step: 5 },
     rotationY: { value: Math.PI, min: -Math.PI, max: Math.PI, step: 0.1 },
     rotationX: { value: Math.PI / 2, min: -Math.PI, max: Math.PI, step: 0.1 },
@@ -30,7 +30,6 @@ export function Curtain() {
     foldSpeed: { value: 0.5, min: 0.1, max: 20, step: 0.1 },
   });
 
-  // Pre-compute and cache values
   useEffect(() => {
     gltf.scene.traverse((child) => {
       if (child instanceof THREE.Mesh && child.geometry.attributes.position) {
@@ -64,33 +63,33 @@ export function Curtain() {
     });
   }, [gltf]);
 
-  // Pre-compute Math.PI * 2 for better performance
-  const TWO_PI = useMemo(() => Math.PI * 2, []);
+  const TWO_PI = Math.PI * 2;
 
   useFrame((state, delta) => {
-    if (!isAnimating.current && timeRef.current === (isFolded ? 1 : 0)) {
-      return;
-    }
-
-    const easedDelta = delta * controls.foldSpeed * 0.5;
     let needsNormalUpdate = false;
+    const skipFoldingUpdate =
+      !isAnimating.current && timeRef.current === (isFolded ? 1 : 0);
 
-    if (isFolded) {
-      timeRef.current = Math.min(timeRef.current + easedDelta, 1);
-      if (timeRef.current === 1) {
-        isAnimating.current = false;
-        needsNormalUpdate = true;
-      }
-    } else {
-      timeRef.current = Math.max(timeRef.current - easedDelta, 0);
-      if (timeRef.current === 0) {
-        isAnimating.current = false;
-        needsNormalUpdate = true;
+    // Handle folding animation
+    if (!skipFoldingUpdate) {
+      const easedDelta = delta * controls.foldSpeed * 0.5;
+
+      if (isFolded) {
+        timeRef.current = Math.min(timeRef.current + easedDelta, 1);
+        if (timeRef.current === 1) {
+          isAnimating.current = false;
+          needsNormalUpdate = true;
+        }
+      } else {
+        timeRef.current = Math.max(timeRef.current - easedDelta, 0);
+        if (timeRef.current === 0) {
+          isAnimating.current = false;
+          needsNormalUpdate = true;
+        }
       }
     }
 
     const foldProgress = timeRef.current;
-    // Optimize easing calculation
     const easedProgress = foldProgress * foldProgress * (3 - 2 * foldProgress);
     const piEasedProgress = Math.PI * easedProgress;
 
@@ -105,7 +104,6 @@ export function Curtain() {
           const foldLayers = controls.foldLayers;
           const foldAmount = controls.foldAmount;
 
-          // Batch process vertices for better performance
           for (let i = 0; i < positions.count; i++) {
             const idx = i * 3;
             const shiftedPhase =
@@ -123,7 +121,6 @@ export function Curtain() {
       }
     });
 
-    // Update normals only when necessary
     if (needsNormalUpdate || isAnimating.current) {
       meshRefs.current.forEach((child) => {
         if (child instanceof THREE.Mesh) {
@@ -133,29 +130,36 @@ export function Curtain() {
     }
   });
 
-  useEffect(() => {
-    if (curtainRef.current) {
-      camera.position.set(
-        curtainRef.current.position.x,
-        curtainRef.current.position.y + 5,
-        curtainRef.current.position.z + 10
-      );
-    }
-  }, [camera, curtainRef]);
+  // useEffect(() => {
+  //   if (curtainRef.current) {
+  //     camera.position.set(
+  //       curtainRef.current.position.x,
+  //       curtainRef.current.position.y + 5,
+  //       curtainRef.current.position.z + 10
+  //     );
+  //   }
+  // }, [camera, curtainRef]);
 
   return (
-    <group
-      ref={curtainRef}
-      position={[controls.positionX, controls.positionY, controls.positionZ]}
-      rotation={[controls.rotationX, controls.rotationY, controls.rotationZ]}
-      scale={controls.scale}
-      onClick={() => {
-        setIsFolded(!isFolded);
-        isAnimating.current = true;
-      }}
-    >
-      <primitive object={gltf.scene} />
-    </group>
+    <>
+      {/* Add grid helper at scene center */}
+      <primitive object={new THREE.GridHelper(10, 10, 'red', 'blue')} />
+
+      <group
+        ref={curtainRef}
+        position={[controls.positionX, controls.positionY, controls.positionZ]}
+        rotation={[controls.rotationX, controls.rotationY, controls.rotationZ]}
+        scale={controls.scale}
+        onClick={() => {
+          setIsFolded(!isFolded);
+          isAnimating.current = true;
+        }}
+      >
+        {/* Add axes helper as child of curtain group */}
+        <primitive object={new THREE.AxesHelper(100)} />
+        <primitive object={gltf.scene} />
+      </group>
+    </>
   );
 }
 

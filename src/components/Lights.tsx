@@ -10,12 +10,12 @@ interface LightsProps {
 export function Lights({ glowColor }: LightsProps) {
   const lightControls = useControls('Lights', {
     // Ambient Light
-    ambientIntensity: { value: 0.5, min: 0, max: 2, step: 0.1 },
-    ambientColor: { value: '#ffffff' },
+    ambientIntensity: { value: 2, min: 0, max: 10, step: 0.1 },
+    ambientColor: { value: '#e8bdbd' },
 
     // Main Directional Light
     directionalIntensity: { value: 1, min: 0, max: 20, step: 0.1 },
-    directionalColor: { value: '#ffffff' },
+    directionalColor: { value: '#ad8787' },
     directionalX: { value: 5, min: -100, max: 100, step: 0.1 },
     directionalY: { value: 5, min: -100, max: 100, step: 0.1 },
     directionalZ: { value: 5, min: -100, max: 100, step: 0.1 },

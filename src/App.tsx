@@ -2,7 +2,6 @@ import { OrbitControls, useGLTF } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import { useControls } from 'leva';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 import { Curtain } from './components/Curtain';
 import { Lights } from './components/Lights';
@@ -23,9 +22,6 @@ function App() {
     fogDensity: { value: 0.01, min: 0, max: 0.1, step: 0.001 },
   });
 
-  // Create a new RoomEnvironment
-  const roomEnvironment = new RoomEnvironment();
-
   return (
     <div
       style={{
@@ -34,7 +30,7 @@ function App() {
         background: sceneControls.backgroundColor,
       }}
     >
-      <Canvas camera={{ position: [0, 5, 10] }}>
+      <Canvas camera={{ position: [0, 0, 5] }}>
         <color attach="background" args={[sceneControls.backgroundColor]} />
         <fog attach="fog" args={[sceneControls.fogColor, 0, 25]} />
 
@@ -50,18 +46,6 @@ function App() {
             radius={glowControls.bloomRadius}
           />
         </EffectComposer>
-
-        {/* Use the RoomEnvironment as the background of your scene */}
-        <mesh>
-          <boxGeometry args={[1000, 1000, 1000]} />
-          <meshBasicMaterial map={roomEnvironment.texture} />
-        </mesh>
-
-        {/* Use the RoomEnvironment as the environment map for your materials */}
-        <mesh>
-          <boxGeometry args={[1000, 1000, 1000]} />
-          <meshStandardMaterial envMap={roomEnvironment.texture} />
-        </mesh>
       </Canvas>
     </div>
   );
