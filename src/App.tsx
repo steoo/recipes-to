@@ -13,6 +13,7 @@ function Curtain() {
   const [isFolded, setIsFolded] = useState(false);
   const timeRef = useRef(0);
   const gltf = useGLTF('/curtains.glb');
+  const isAnimating = useRef(false);
 
   // Add Leva controls with adjusted ranges and default values
   const controls = useControls({
@@ -37,8 +38,8 @@ function Curtain() {
     foldSpeed: { value: 2, min: 0.1, max: 20, step: 0.1 },
   });
 
+  // Cache geometry data for better performance
   useEffect(() => {
-    // Store original geometry data when the model loads
     gltf.scene.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         if (!(child.material instanceof THREE.MeshStandardMaterial)) {
@@ -51,65 +52,81 @@ function Curtain() {
         child.castShadow = true;
         child.receiveShadow = true;
 
-        // Store original positions if not already stored
+        // Store original positions and compute normalized Y values once
         if (!child.geometry.userData.originalPositions) {
           const positions = child.geometry.attributes.position;
           child.geometry.userData.originalPositions = Float32Array.from(
             positions.array
           );
+
+          // Pre-compute normalized Y values
+          const bbox =
+            child.geometry.boundingBox ||
+            new THREE.Box3().setFromBufferAttribute(positions);
+          const normalizedY = new Float32Array(positions.count);
+          for (let i = 0; i < positions.count; i++) {
+            normalizedY[i] =
+              (positions.getY(i) - bbox.min.y) / (bbox.max.y - bbox.min.y);
+          }
+          child.geometry.userData.normalizedY = normalizedY;
         }
       }
     });
   }, [gltf, controls.color, controls.metalness, controls.roughness]);
 
   useFrame((state, delta) => {
-    // Update folding progress
+    if (!isAnimating.current && timeRef.current === (isFolded ? 1 : 0)) {
+      return;
+    }
+
+    // Smooth out the animation timing
+    const easedDelta = delta * controls.foldSpeed * 0.5; // Reduced speed for smoother animation
+
     if (isFolded) {
-      timeRef.current = Math.min(
-        timeRef.current + delta * controls.foldSpeed,
-        1
-      );
+      timeRef.current = Math.min(timeRef.current + easedDelta, 1);
+      if (timeRef.current === 1) {
+        isAnimating.current = false;
+      }
     } else {
-      timeRef.current = Math.max(
-        timeRef.current - delta * controls.foldSpeed,
-        0
-      );
+      timeRef.current = Math.max(timeRef.current - easedDelta, 0);
+      if (timeRef.current === 0) {
+        isAnimating.current = false;
+      }
     }
 
     const foldProgress = timeRef.current;
+    // Add easing to the fold progress
+    const easedProgress = foldProgress * foldProgress * (3 - 2 * foldProgress); // Smooth step function
 
-    // Apply folding animation
     gltf.scene.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         const positions = child.geometry.attributes.position;
         const originalPositions = child.geometry.userData.originalPositions;
+        const normalizedY = child.geometry.userData.normalizedY;
 
-        if (originalPositions) {
+        if (originalPositions && normalizedY) {
           for (let i = 0; i < positions.count; i++) {
             const origY = originalPositions[i * 3 + 1];
             const origZ = originalPositions[i * 3 + 2];
 
-            // Normalize Y position for folding calculation
-            const normalizedY =
-              (origY - child.geometry.boundingBox?.min.y) /
-              (child.geometry.boundingBox?.max.y -
-                child.geometry.boundingBox?.min.y);
-
-            // Calculate fold effect
-            const foldPhase = normalizedY * Math.PI * 2 * controls.foldLayers;
+            // Use pre-computed normalized Y values
+            const foldPhase =
+              normalizedY[i] * Math.PI * 2 * controls.foldLayers;
             const foldOffset =
-              Math.sin(foldPhase) * controls.foldAmount * foldProgress;
+              Math.sin(foldPhase) * controls.foldAmount * easedProgress;
 
-            // Apply folding transformation
             positions.setZ(i, origZ + foldOffset);
 
-            // Compress height when folded
-            const compressedY = origY * (1 - foldProgress * 0.5);
+            // Smooth out the height compression
+            const compressedY = origY * (1 - easedProgress * 0.5);
             positions.setY(i, compressedY);
           }
 
           positions.needsUpdate = true;
-          child.geometry.computeVertexNormals();
+          // Only compute normals every few frames if needed
+          if (state.clock.elapsedTime % 2 === 0) {
+            child.geometry.computeVertexNormals();
+          }
         }
       }
     });
@@ -122,7 +139,7 @@ function Curtain() {
       scale={controls.scale}
       onClick={() => {
         setIsFolded(!isFolded);
-        console.log('Folding toggled:', !isFolded); // Debug log
+        isAnimating.current = true;
       }}
     >
       <primitive object={gltf.scene} />
