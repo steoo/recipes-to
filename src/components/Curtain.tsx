@@ -1,7 +1,8 @@
-import { useGLTF, useHelper } from '@react-three/drei';
+import { useGLTF } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
+import Ammo from 'ammojs-typed';
 import { useControls } from 'leva';
-import { useRef, useState, useEffect, useMemo } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import * as THREE from 'three';
 
 const path = '/curtains.glb';
@@ -14,8 +15,13 @@ export function Curtain() {
   const originalPositions = useRef(new Map());
   const normalizedYValues = useRef(new Map());
   const meshRefs = useRef(new Map());
-  const { camera } = useThree();
   const curtainRef = useRef<THREE.Group>(null);
+  const ammoLib = useRef<typeof Ammo>({} as typeof Ammo);
+  const physicsWorld = useRef<Ammo.btSoftRigidDynamicsWorld>(
+    {} as Ammo.btSoftRigidDynamicsWorld
+  );
+  const transformAux1 = useRef<Ammo.btTransform>({} as Ammo.btTransform);
+  const clock = new THREE.Clock();
 
   const controls = useControls('Curtain', {
     positionX: { value: 0, min: -100, max: 100, step: 5 },
@@ -29,6 +35,120 @@ export function Curtain() {
     foldAmount: { value: 0.5, min: 0, max: 10, step: 0.01 },
     foldSpeed: { value: 0.5, min: 0.1, max: 20, step: 0.1 },
   });
+
+  const initPhysics = () => {
+    // Physics configuration
+    const gravityConstant = -9.8;
+
+    const collisionConfiguration =
+      new ammoLib.current.btSoftBodyRigidBodyCollisionConfiguration();
+    const dispatcher = new ammoLib.current.btCollisionDispatcher(
+      collisionConfiguration
+    );
+    const broadphase = new ammoLib.current.btDbvtBroadphase();
+    const solver = new ammoLib.current.btSequentialImpulseConstraintSolver();
+    const softBodySolver = new ammoLib.current.btDefaultSoftBodySolver();
+    physicsWorld.current = new ammoLib.current.btSoftRigidDynamicsWorld(
+      dispatcher,
+      broadphase,
+      solver,
+      collisionConfiguration,
+      softBodySolver
+    );
+    physicsWorld.current.setGravity(
+      new ammoLib.current.btVector3(0, gravityConstant, 0)
+    );
+    physicsWorld.current
+      .getWorldInfo()
+      .set_m_gravity(new ammoLib.current.btVector3(0, gravityConstant, 0));
+
+    transformAux1.current = new ammoLib.current.btTransform();
+  };
+
+  const applyPhysics = () => {
+    const margin = 10;
+
+    // Get the first mesh from meshRefs (assuming it's the curtain)
+    const clothMesh = Array.from(meshRefs.current.values())[0] as THREE.Mesh;
+
+    if (!clothMesh || !clothMesh.geometry) {
+      console.error('Curtain mesh not found');
+      return;
+    }
+
+    const clothPos = curtainRef.current!.position;
+    const clothHeight = curtainRef.current!.scale.y;
+    const clothWidth = curtainRef.current!.scale.x;
+
+    // Calculate segments based on the mesh geometry
+    const positions = clothMesh.geometry.attributes.position;
+    const clothNumSegmentsZ = Math.sqrt(positions.count) - 1;
+    const clothNumSegmentsY = Math.sqrt(positions.count) - 1;
+
+    console.log('Cloth segments:', {
+      Z: clothNumSegmentsZ,
+      Y: clothNumSegmentsY,
+      vertexCount: positions.count,
+      mesh: clothMesh,
+    });
+
+    const softBodyHelpers = new ammoLib.current.btSoftBodyHelpers();
+    const clothCorner00 = new ammoLib.current.btVector3(
+      clothPos.x,
+      clothPos.y + clothHeight,
+      clothPos.z
+    );
+    const clothCorner01 = new ammoLib.current.btVector3(
+      clothPos.x,
+      clothPos.y + clothHeight,
+      clothPos.z - clothWidth
+    );
+    const clothCorner10 = new ammoLib.current.btVector3(
+      clothPos.x,
+      clothPos.y,
+      clothPos.z
+    );
+    const clothCorner11 = new ammoLib.current.btVector3(
+      clothPos.x,
+      clothPos.y,
+      clothPos.z - clothWidth
+    );
+    const clothSoftBody = softBodyHelpers.CreatePatch(
+      physicsWorld.current.getWorldInfo(),
+      clothCorner00,
+      clothCorner01,
+      clothCorner10,
+      clothCorner11,
+      clothNumSegmentsZ + 1,
+      clothNumSegmentsY + 1,
+      0,
+      true
+    );
+    const sbConfig = clothSoftBody.get_m_cfg();
+    sbConfig.set_viterations(10);
+    sbConfig.set_piterations(10);
+
+    clothSoftBody.setTotalMass(0.9, false);
+    ammoLib.current
+      .castObject(clothSoftBody, ammoLib.current.btCollisionObject)
+      .getCollisionShape()
+      .setMargin(margin * 3);
+    physicsWorld.current.addSoftBody(clothSoftBody, 1, -1);
+    clothMesh.userData.physicsBody = clothSoftBody;
+    // Disable deactivation
+    clothSoftBody.setActivationState(4);
+  };
+
+  useEffect(() => {
+    Ammo.call({}).then((AmmoLib) => {
+      console.log(AmmoLib);
+
+      ammoLib.current = AmmoLib;
+
+      initPhysics();
+      applyPhysics();
+    });
+  }, []);
 
   useEffect(() => {
     gltf.scene.traverse((child) => {
@@ -130,19 +250,47 @@ export function Curtain() {
     }
   });
 
-  // useEffect(() => {
-  //   if (curtainRef.current) {
-  //     camera.position.set(
-  //       curtainRef.current.position.x,
-  //       curtainRef.current.position.y + 5,
-  //       curtainRef.current.position.z + 10
-  //     );
-  //   }
-  // }, [camera, curtainRef]);
+  const updatePhysics = () => {
+    if (!physicsWorld.current) return;
+
+    const deltaTime = clock.getDelta();
+
+    physicsWorld.current.stepSimulation(deltaTime, 10);
+
+    meshRefs.current.forEach((child) => {
+      if (child instanceof THREE.Mesh && child.geometry.attributes.position) {
+        const softBody = child.userData.physicsBody;
+        const positions = child.geometry.attributes.position;
+
+        if (!softBody) return;
+
+        const clothPositions = child.geometry.attributes.position.array;
+        const numVerts = clothPositions.length / 3;
+        const nodes = softBody.m_nodes;
+        let indexFloat = 0;
+
+        for (let i = 0; i < numVerts; i++) {
+          const node = nodes.at(i);
+          const nodePos = node.get_m_x();
+          clothPositions[indexFloat++] = nodePos.x();
+          clothPositions[indexFloat++] = nodePos.y();
+          clothPositions[indexFloat++] = nodePos.z();
+        }
+
+        child.geometry.computeVertexNormals();
+        child.geometry.attributes.position.needsUpdate = true;
+        child.geometry.attributes.normal.needsUpdate = true;
+        positions.needsUpdate = true;
+      }
+    });
+  };
+
+  useFrame(() => {
+    // updatePhysics();
+  });
 
   return (
     <>
-      {/* Add grid helper at scene center */}
       <primitive object={new THREE.GridHelper(10, 10, 'red', 'blue')} />
 
       <group
@@ -151,7 +299,7 @@ export function Curtain() {
         rotation={[controls.rotationX, controls.rotationY, controls.rotationZ]}
         scale={controls.scale}
         onClick={() => {
-          setIsFolded(!isFolded);
+          // setIsFolded(!isFolded);
           isAnimating.current = true;
         }}
       >
@@ -162,5 +310,3 @@ export function Curtain() {
     </>
   );
 }
-
-useGLTF.preload(path);

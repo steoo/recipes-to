@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import { useControls } from 'leva';
 
+import AnimatedCurtain from './components/AnimatedCurtain';
 import { Curtain } from './components/Curtain';
 import { Lights } from './components/Lights';
 
@@ -35,7 +36,8 @@ function App() {
         <fog attach="fog" args={[sceneControls.fogColor, 0, 25]} />
 
         <Lights glowColor={glowControls.glowColor} />
-        <Curtain />
+        {/* <Curtain /> */}
+        <AnimatedCurtain />
 
         <OrbitControls makeDefault />
 
